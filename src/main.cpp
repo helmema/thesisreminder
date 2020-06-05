@@ -3,13 +3,17 @@
 #include <Wire.h>
 #include <lmic.h>
 #include <hal/hal.h>
+#include <LowPower.h>
 
 #define BUTTON 3
 #define LED 4
 
 int i = 1;
+int alarmTime = 10;
 
 RTC_DS1307 RTC;
+
+void interruptFunction();
 
 /**
 * LoRa
@@ -116,10 +120,20 @@ void do_send(osjob_t *j)
   }
 }
 
+void wakeup(){
+  Serial.println("Awake!");
+  detachInterrupt(BUTTON);
+  attachInterrupt(digitalPinToInterrupt(BUTTON), interruptFunction, FALLING);
+}
+
 void interruptFunction(){
   Serial.println("Button pressed. Sending LoRaWAN message.");
   detachInterrupt(digitalPinToInterrupt(BUTTON));
-  do_send(&sendjob);
+  attachInterrupt(digitalPinToInterrupt(BUTTON), wakeup, FALLING);
+  //do_send(&sendjob);
+  //os_runloop_once(); // Tämä lähettää jonossa olevat viestit.
+  delay(100);
+  LowPower.powerDown(SLEEP_FOREVER,ADC_OFF, BOD_OFF);
 }
 
 void setup(){
@@ -139,7 +153,6 @@ void setup(){
   }
   // following line sets the RTC to the date & time this sketch was compiled
   RTC.adjust(DateTime(__DATE__, __TIME__)); //TODO: Uncomment after battery is inserted
-
   /**
    * LoRa setup
    */
@@ -165,7 +178,7 @@ void setup(){
 }
 
 void loop(){
-
-  os_runloop_once(); // Tämä lähettää jonossa olevat viestit.
-  delay(10000);
+  Serial.println(i);
+  i++;
+  delay(1000);
 }
