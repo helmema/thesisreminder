@@ -10,11 +10,12 @@
 #define LED 4
 #define RED strip.Color(255, 0, 0)
 #define GREEN strip.Color(0, 255, 0)
+#define TIMEOUT 5000
 
 int activeLED;
 int i = 0;
-int timeout = 500; //TODO: Jos nappia ei ole painettu timeoutin aikaan, lähetetään LoRa-viesti
-//TODO: Laita tulostamaan valojen sytytys
+unsigned long lastAlarm;
+boolean checked = true;
 
 int ma[] = {0, 13, 14, 27};
 int ti[] = {1, 12, 15, 26};
@@ -90,7 +91,6 @@ void onEvent(ev_t ev)
   case EV_TXCOMPLETE:
     Serial.println(F("EV_TXCOMPLETE (includes waiting for RX windows)"));
     os_radio(RADIO_RST);
-    // After successful send, set sending=0 and sleep.
     Serial.println("Sending message completed.");
     break;
   case EV_LOST_TSYNC:
@@ -146,6 +146,9 @@ void wakeup()
 */
 void changeLEDColor(int led, uint32_t color)
 {
+  Serial.print("Changing color of LED ");
+  Serial.print(led);
+  Serial.println('.');
   strip.setPixelColor(led, color);
   strip.show();
 }
@@ -154,15 +157,24 @@ void interruptFunction()
 {
   Serial.println("Button pressed.");
   changeLEDColor(activeLED, 0);
-  //do_send(&sendjob);
-  //os_runloop_once(); // Tämä lähettää jonossa olevat viestit.
+  checked = true;
+  detachInterrupt(digitalPinToInterrupt(BUTTON));
   delay(100);
   //LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 }
 
+void logButtonNotPressed(){
+  Serial.println("Button not pressed in time. Sending LoRa-message.");
+  changeLEDColor(activeLED,RED);
+  detachInterrupt(digitalPinToInterrupt(BUTTON));
+  checked = true;
+  //do_send(&sendjob);
+  //os_runloop_once(); // Tämä lähettää jonossa olevat viestit.
+}
+
 int getLEDindex(uint8_t hour)
 {
-  if(hour == 8) return 0;
+  if(hour == 9) return 0;
   if(hour == 12) return 1;
   if(hour == 15) return 2;
   if(hour == 21) return 3;
@@ -207,7 +219,15 @@ void turnOnLED(DateTime date)
     if (x != activeLED)
     {
       activeLED = x;
-      changeLEDColor(activeLED, RED);
+      changeLEDColor(activeLED, GREEN);
+      attachInterrupt(digitalPinToInterrupt(BUTTON), interruptFunction, FALLING);
+      lastAlarm = millis();
+      checked = false;
+      Serial.print("It's ");
+      Serial.print(hour);
+      Serial.print(" o'clock now. Time to turn on LED ");
+      Serial.print(x);
+      Serial.println('.');
     }
   }
 }
@@ -218,7 +238,6 @@ void setup()
   Serial.println("Setup complete. Welcome!");
 
   pinMode(BUTTON, INPUT);
-  attachInterrupt(digitalPinToInterrupt(BUTTON), interruptFunction, FALLING);
 
   /**
    * RTC-Setup
@@ -265,5 +284,12 @@ void setup()
 boolean print = true;
 void loop()
 {
-  turnOnLED(RTC.now());
+  DateTime now = RTC.now();
+  turnOnLED(now);
+
+  unsigned long timeNow = millis();
+  if(timeNow - lastAlarm >= TIMEOUT && !checked){
+    logButtonNotPressed();
+    checked = true;
+  }
 }
