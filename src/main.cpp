@@ -4,31 +4,45 @@
 #include <lmic.h>
 #include <hal/hal.h>
 #include <LowPower.h>
+#include <Adafruit_NeoPixel.h>
 
 #define BUTTON 3
 #define LED 4
+#define RED strip.Color(255, 0, 0)
+#define GREEN strip.Color(0, 255, 0)
 
-int i = 1;
-int alarmTime = 10;
+int activeLED;
+int i = 0;
+int timeout = 500; //TODO: Jos nappia ei ole painettu timeoutin aikaan, lähetetään LoRa-viesti
+//TODO: Laita tulostamaan valojen sytytys
+
+int ma[] = {0, 13, 14, 27};
+int ti[] = {1, 12, 15, 26};
+int ke[] = {2, 11, 16, 25};
+int to[] = {3, 10, 17, 24};
+int pe[] = {4, 9, 18, 23};
+int la[] = {5, 8, 19, 22};
+int su[] = {6, 7, 20, 21};
 
 RTC_DS1307 RTC;
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(60, LED, NEO_GRB + NEO_KHZ800);
 
 void interruptFunction();
 
 /**
 * LoRa
-*/ 
+*/
 const unsigned TX_INTERVAL = 60;
 
 // Näitä käytetään ainoastaan OTAA-lähetykseen, joten tässä tyhjiä.
-void os_getArtEui(u1_t *buf){}
-void os_getDevEui(u1_t *buf){}
-void os_getDevKey(u1_t *buf){}
+void os_getArtEui(u1_t *buf) {}
+void os_getDevEui(u1_t *buf) {}
+void os_getDevKey(u1_t *buf) {}
 
 // LMIC-kirjaston lähetysfunktiota varten
 static osjob_t sendjob;
 
- // Draginon pinnikartta
+// Draginon pinnikartta
 const lmic_pinmap lmic_pins = {
     .nss = 10,
     .rxtx = LMIC_UNUSED_PIN,
@@ -36,8 +50,8 @@ const lmic_pinmap lmic_pins = {
     .dio = {2, 6, 7},
 };
 
-static const PROGMEM u1_t NWKSKEY[16] = {0x55,0xDE,0xCC,0x35,0x95,0x47,0xF8,0xF4,0x25,0xAC,0x6C,0xBF,0xA9,0x65,0x3E,0x31};
-static const u1_t PROGMEM APPSKEY[16] = {0x4D,0x5A,0x16,0x8F,0xD3,0x63,0x8F,0xD1,0x0B,0xF1,0xE4,0x58,0xAF,0x08,0x4C,0xBE};
+static const PROGMEM u1_t NWKSKEY[16] = {0x55, 0xDE, 0xCC, 0x35, 0x95, 0x47, 0xF8, 0xF4, 0x25, 0xAC, 0x6C, 0xBF, 0xA9, 0x65, 0x3E, 0x31};
+static const u1_t PROGMEM APPSKEY[16] = {0x4D, 0x5A, 0x16, 0x8F, 0xD3, 0x63, 0x8F, 0xD1, 0x0B, 0xF1, 0xE4, 0x58, 0xAF, 0x08, 0x4C, 0xBE};
 static const u4_t DEVADDR = 0x2601186D; // Laiteosoite
 
 void onEvent(ev_t ev)
@@ -112,7 +126,7 @@ void do_send(osjob_t *j)
   else
   {
     String value = "payload";
-    uint8_t payload[value.length()+1];
+    uint8_t payload[value.length() + 1];
     value.getBytes(payload, value.length());
     Serial.println("Sending LoRa message.");
     LMIC_setTxData2(1, payload, sizeof(payload) - 1, 0);
@@ -120,25 +134,88 @@ void do_send(osjob_t *j)
   }
 }
 
-void wakeup(){
+void wakeup()
+{
   Serial.println("Awake!");
   detachInterrupt(BUTTON);
   attachInterrupt(digitalPinToInterrupt(BUTTON), interruptFunction, FALLING);
 }
 
-void interruptFunction(){
-  Serial.println("Button pressed. Sending LoRaWAN message.");
-  detachInterrupt(digitalPinToInterrupt(BUTTON));
-  attachInterrupt(digitalPinToInterrupt(BUTTON), wakeup, FALLING);
+/*
+* Set color to led.
+*/
+void changeLEDColor(int led, uint32_t color)
+{
+  strip.setPixelColor(led, color);
+  strip.show();
+}
+
+void interruptFunction()
+{
+  Serial.println("Button pressed.");
+  changeLEDColor(activeLED, 0);
   //do_send(&sendjob);
   //os_runloop_once(); // Tämä lähettää jonossa olevat viestit.
   delay(100);
-  LowPower.powerDown(SLEEP_FOREVER,ADC_OFF, BOD_OFF);
+  //LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 }
 
-void setup(){
+int getLEDindex(uint8_t hour)
+{
+  if(hour == 8) return 0;
+  if(hour == 12) return 1;
+  if(hour == 15) return 2;
+  if(hour == 21) return 3;
+  return -1;
+}
+
+void turnOnLED(DateTime date)
+{
+  uint8_t day = date.dayOfTheWeek();
+  uint8_t hour = date.hour();
+  uint8_t index = getLEDindex(hour);
+  int x;
+  if (index >= 0)
+  {
+    switch (day)
+    {
+    case 1:
+      x = ma[index];
+      break;
+    case 2:
+      x = ti[index];
+      break;
+    case 3:
+      x = ke[index];
+      break;
+    case 4:
+      x = to[index];
+      break;
+    case 5:
+      x = pe[index];
+      break;
+    case 6:
+      x = la[index];
+      break;
+    case 7:
+      x = su[index];
+      break;
+    default:
+      break;
+    }
+
+    if (x != activeLED)
+    {
+      activeLED = x;
+      changeLEDColor(activeLED, RED);
+    }
+  }
+}
+
+void setup()
+{
   Serial.begin(9600);
-  Serial.println("Setup complete. Welcome!"); 
+  Serial.println("Setup complete. Welcome!");
 
   pinMode(BUTTON, INPUT);
   attachInterrupt(digitalPinToInterrupt(BUTTON), interruptFunction, FALLING);
@@ -148,7 +225,8 @@ void setup(){
    */
   Wire.begin();
   RTC.begin();
-  if (! RTC.isrunning()) {
+  if (!RTC.isrunning())
+  {
     Serial.println("RTC is NOT running!");
   }
   // following line sets the RTC to the date & time this sketch was compiled
@@ -175,10 +253,17 @@ void setup(){
 
   //Asetetaan lähetyksen vahvuus (SF)
   LMIC_setDrTxpow(DR_SF7, 14);
+
+  /*
+  * LED strip setup
+  */
+  strip.begin();
+  strip.setBrightness(10);
+  strip.show(); //Initialize pixels to 'off'
 }
 
-void loop(){
-  Serial.println(i);
-  i++;
-  delay(1000);
+boolean print = true;
+void loop()
+{
+  turnOnLED(RTC.now());
 }
