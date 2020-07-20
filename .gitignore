@@ -36,3 +36,6 @@
 *.exe
 *.out
 *.app
+
+#Project-specific files
+keys.h
